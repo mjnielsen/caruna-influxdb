@@ -48,11 +48,11 @@ def main():
         print("Time range too large")
         return    
 
-    s = pycaruna.login(CARUNA_USERNAME, CARUNA_PASSWORD)
-    caruna_data = json.loads(pycaruna.getConsHours(s, CARUNA_CUSTOMER_NUM, 
-        CARUNA_METERING_POINT_NUM, sd.isoformat(), ed.isoformat()).text)
+    s = pycaruna.login_caruna(CARUNA_USERNAME, CARUNA_PASSWORD)
+    caruna_data = pycaruna.get_cons_hours(s, CARUNA_CUSTOMER_NUM, 
+        CARUNA_METERING_POINT_NUM, sd.isoformat(), ed.isoformat())
 
-    pycaruna.logout(s)
+    pycaruna.logout_caruna(s)
 
     with InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, 
             org=INFLUX_ORG) as client:
