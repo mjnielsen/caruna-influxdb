@@ -4,6 +4,9 @@ from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
 from decouple import config
 
+def daterange(start_date, end_date):
+    for n in range(int((end_date - start_date).days)):
+        yield start_date + timedelta(n)
 
 def main():
     CARUNA_CUSTOMER_NUM = config('CARUNA_CUSTOMER_NUM')
@@ -48,35 +51,30 @@ def main():
         print("Time range too large")
         return    
 
-    s = pycaruna.login_caruna(CARUNA_USERNAME, CARUNA_PASSWORD)
-    caruna_data = pycaruna.get_cons_hours(s, CARUNA_CUSTOMER_NUM, 
-        CARUNA_METERING_POINT_NUM, sd.isoformat(), ed.isoformat())
+    (session, info) = pycaruna.login_caruna(CARUNA_USERNAME, CARUNA_PASSWORD)
+    token = info['token']
 
-    pycaruna.logout_caruna(s)
+    caruna_data = []
+    for day in daterange(sd, ed + timedelta(days=1)):
+        caruna_data.append(pycaruna.get_cons_hours(session, token, 
+            CARUNA_CUSTOMER_NUM, CARUNA_METERING_POINT_NUM, str(day.year),
+            str(day.month), str(day.day)))
 
     with InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, 
             org=INFLUX_ORG) as client:
         write_api = client.write_api(write_options=SYNCHRONOUS)
 
         for entry in caruna_data:
-            if entry['hourlyMeasured']:
-                d = {
-                    "measurement": "carunaAPI",
-                    "fields": {
-                        "consumption": float(entry['values']['EL_ENERGY_CONSUMPTION#0']['valueAsFloat'])
-                    },
-                    "tags": {
-                        "metering_point": CARUNA_METERING_POINT_NUM,
-                        "customer_number": CARUNA_CUSTOMER_NUM,
-                        "status": entry['values']['EL_ENERGY_CONSUMPTION#0']['statusAsSerieStatus'],
-                    },
-                    "time": datetime(int(entry['year']),
-                                    int(entry['month']), 
-                                    int(entry['day']),
-                                    int(entry['hour']),
-                                    tzinfo=timezone(timedelta(hours=int(entry['utcOffset']))))
-                } 
-                write_api.write(INFLUX_BUCKET, INFLUX_ORG, Point.from_dict(d))
+            for hour in entry['results'][0]['data']:
+                if hour['consumption']:
+                    d = {
+                        "measurement": "hourlyConsumption",
+                        "fields": {
+                            "value": float(hour['consumption'])
+                        },
+                        "time": datetime.fromisoformat(hour['timestamp'][:-1])
+                    } 
+                    write_api.write(INFLUX_BUCKET, INFLUX_ORG, Point.from_dict(d))
         
         client.close()
 
